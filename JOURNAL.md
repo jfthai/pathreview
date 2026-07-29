@@ -19,3 +19,17 @@ The project currently misses evidence of DevOps and CI/CD experience when a repo
 This issue is a good fit because it is about a missing capability in the repository-ingestion flow: GitHub Actions workflow files are not being parsed, so CI/CD-related evidence is missed and the resulting skill extraction is incomplete. The expected behavior is that workflow YAML files contribute to the analysis by surfacing skills such as GitHub Actions, Docker, pytest, and deployment in the final output.
 
 The change appears to affect the ingestion and analysis pipeline rather than a single isolated function. The relevant code lives in the parser and skill-detection modules, especially ingestion/parsers/repo_analyzer.py, ingestion/parsers/skill_extractor.py, and agent/tools/tech_detector.py, with existing tests in tests/unit/test_skill_extractor.py to build on. This feels like a Tier 3 issue because it spans multiple modules and touches the end-to-end ingestion and skill inference path, but it is still realistic for this sprint because the affected code is relatively contained and the existing test structure gives a clear place to add coverage. I do not see any obvious blockers or dependencies from the issue description, so this looks achievable within the available time.
+
+---
+
+## Week 8 — Reproduction & solution planning
+
+**Reproduction commit link:** https://github.com/jfthai/pathreview/commit/496523b1cfe6ad3e88a6baff43ebece52d108d16
+
+**Reproduction summary:**
+Code inspection of `ingestion/parsers/repo_analyzer.py` and `agent/tools/tech_detector.py` shows that `.github/workflows` is recognized as a CI/CD indicator from repository metadata, but workflow YAML files are not parsed or used to infer `GitHub Actions` / `CI/CD` skills. This means a repo can include GitHub Actions workflows and still miss workflow-related skill extraction.
+
+**PLAN.md link:** ./PLAN.md
+
+**Blockers or open questions:**
+None at this time.
