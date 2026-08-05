@@ -1,6 +1,7 @@
 """Technology stack detector tool."""
 
 import structlog
+
 from .base import BaseTool, ToolResult
 
 logger = structlog.get_logger()
@@ -75,7 +76,7 @@ class TechDetector(BaseTool):
                     "primary_language": "Unknown",
                     "all_languages": [],
                     "frameworks": [],
-                }
+                },
             )
 
         try:
@@ -84,11 +85,7 @@ class TechDetector(BaseTool):
 
         except Exception as e:
             logger.error("tech_detector_error", error=str(e))
-            return ToolResult(
-                success=False,
-                data={},
-                error=str(e)
-            )
+            return ToolResult(success=False, data={}, error=str(e))
 
     def _detect_tech(self, files: list[str]) -> dict:
         """Detect technologies from file list.
@@ -100,10 +97,7 @@ class TechDetector(BaseTool):
             Dict with detected languages and frameworks
         """
         # Filter out vendor/build directories
-        filtered_files = [
-            f for f in files
-            if not self._should_skip_file(f)
-        ]
+        filtered_files = [f for f in files if not self._should_skip_file(f)]
 
         languages = set()
         frameworks = set()
@@ -114,30 +108,62 @@ class TechDetector(BaseTool):
                 if filepath.endswith(ext):
                     languages.add(lang)
 
-        # Detect by config files
+        # Detect by config files and indicators (match substrings so directories
+        # like `.github/workflows/ci.yml` are recognized)
+        tools = set()
         for filepath in filtered_files:
+            filepath_lower = filepath.lower()
             for config_file, (framework, lang) in self.CONFIG_INDICATORS.items():
-                if filepath.endswith(config_file):
-                    languages.add(lang)
-                    if framework not in ("Docker", "Infrastructure", "CI/CD", "Build"):
+                indicator = config_file.lower()
+                if indicator in filepath_lower or filepath_lower.endswith(indicator):
+                    # Add language when the mapping provides one and it's not a CI marker
+                    if lang and lang not in ("CI/CD", "Infrastructure"):
+                        languages.add(lang)
+                    # Add framework when it's a concrete framework/stack
+                    if framework and framework not in (
+                        "Docker",
+                        "Infrastructure",
+                        "CI/CD",
+                        "Build",
+                    ):
                         frameworks.add(framework)
+                    # Treat CI systems as tools
+                    if framework in (
+                        "GitHub Actions",
+                        "Travis CI",
+                        "CircleCI",
+                        "GitLab CI",
+                        "Jenkins",
+                    ):
+                        tools.add(framework)
 
-        # Determine primary language (most common)
+        # Determine primary language (most common by file count)
         primary = "Unknown"
-        if languages:
-            lang_list = sorted(languages)
-            primary = lang_list[0]
+        language_counts: dict[str, int] = {}
+        for filepath in filtered_files:
+            for ext, lang in self.EXT_TO_LANG.items():
+                if filepath.lower().endswith(ext):
+                    language_counts[lang] = language_counts.get(lang, 0) + 1
+
+        if language_counts:
+            primary = max(language_counts.items(), key=lambda item: (item[1], item[0]))[0]
 
         all_languages = sorted(languages)
         all_frameworks = sorted(frameworks)
+        all_tools = sorted(tools)
 
-        logger.info("tech_detected", primary_lang=primary,
-                   languages_count=len(all_languages), frameworks_count=len(all_frameworks))
+        logger.info(
+            "tech_detected",
+            primary_lang=primary,
+            languages_count=len(all_languages),
+            frameworks_count=len(all_frameworks),
+        )
 
         return {
             "primary_language": primary,
             "all_languages": all_languages,
             "frameworks": all_frameworks,
+            "tools": all_tools,
         }
 
     @staticmethod
@@ -150,15 +176,16 @@ class TechDetector(BaseTool):
         Returns:
             True if file should be skipped
         """
+        normalized = filepath.replace("\\", "/")
         skip_patterns = [
-            "/node_modules/",
-            "/vendor/",
-            "/dist/",
-            "/build/",
-            "/.git/",
-            "/__pycache__/",
-            "/.venv/",
-            "/venv/",
+            "node_modules/",
+            "vendor/",
+            "dist/",
+            "build/",
+            ".git/",
+            "__pycache__/",
+            ".venv/",
+            "venv/",
         ]
 
-        return any(pattern in filepath for pattern in skip_patterns)
+        return any(pattern in normalized for pattern in skip_patterns)

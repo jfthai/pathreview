@@ -1,11 +1,11 @@
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class SkillDetection:
     """Result of detecting a skill."""
+
     name: str
     category: str
     confidence: float
@@ -79,15 +79,17 @@ class SkillExtractor:
     }
 
     DATABASES = {
-        "postgresql": 0.95,
-        "mysql": 0.95,
-        "mongodb": 0.95,
-        "redis": 0.90,
-        "elasticsearch": 0.90,
-        "dynamodb": 0.90,
-        "firebase": 0.85,
-        "cassandra": 0.85,
-        "oracle": 0.85,
+        "postgresql": ("PostgreSQL", 0.95),
+        "psycopg": ("PostgreSQL", 0.95),
+        "psycopg2": ("PostgreSQL", 0.95),
+        "mysql": ("MySQL", 0.95),
+        "mongodb": ("MongoDB", 0.95),
+        "redis": ("Redis", 0.90),
+        "elasticsearch": ("Elasticsearch", 0.90),
+        "dynamodb": ("DynamoDB", 0.90),
+        "firebase": ("Firebase", 0.85),
+        "cassandra": ("Cassandra", 0.85),
+        "oracle": ("Oracle", 0.85),
     }
 
     TOOLS = {
@@ -105,7 +107,12 @@ class SkillExtractor:
         "ansible": 0.85,
     }
 
-    def extract_skills(self, text: str, filename: Optional[str] = None) -> list[SkillDetection]:
+    def extract_skills(
+        self,
+        text: str,
+        filename: str | None = None,
+        repo_metadata: dict | None = None,
+    ) -> list[SkillDetection]:
         """
         Extract skills from source code or documentation text.
 
@@ -116,7 +123,64 @@ class SkillExtractor:
         Returns:
             List of detected skills with confidence scores
         """
-        detected_skills = {}
+        detected_skills: dict[str, SkillDetection] = {}
+
+        # If repository metadata is provided, fold in file-structure evidence
+        # and explicit workflow contents (if available).
+        combined_text = text or ""
+        if isinstance(repo_metadata, dict):
+            file_structure = repo_metadata.get("file_structure")
+            if isinstance(file_structure, list):
+                combined_text += " " + " ".join(file_structure)
+                # If there are GitHub Actions workflow filenames, mark CI/CD
+                workflow_files = [f for f in file_structure if ".github/workflows" in f.lower()]
+                if workflow_files:
+                    # Add explicit detections for GitHub Actions and CI/CD
+                    detected_skills.setdefault(
+                        "GitHub Actions",
+                        SkillDetection(
+                            name="GitHub Actions",
+                            category="Tool",
+                            confidence=0.9,
+                            evidence=[f"Found workflow file(s): {', '.join(workflow_files)}"],
+                        ),
+                    )
+                    detected_skills.setdefault(
+                        "CI/CD",
+                        SkillDetection(
+                            name="CI/CD",
+                            category="Tool",
+                            confidence=0.85,
+                            evidence=["Repository contains CI/CD workflow files"],
+                        ),
+                    )
+
+            # If raw workflow contents are provided under `workflows`, try to
+            # extract job names or triggers for stronger evidence.
+            workflows = repo_metadata.get("workflows")
+            if isinstance(workflows, dict):
+                for wf_name, wf_content in workflows.items():
+                    if isinstance(wf_content, str):
+                        evidence = []
+                        low = wf_content.lower()
+                        if "jobs:" in low:
+                            evidence.append("jobs: defined in workflow")
+                        if "on:" in low:
+                            evidence.append("on: triggers defined in workflow")
+                        gha = detected_skills.get("GitHub Actions")
+                        if evidence and gha:
+                            gha.evidence.append(f"{wf_name}: " + ", ".join(evidence))
+                            gha.confidence = min(0.99, gha.confidence + 0.03)
+                        elif evidence:
+                            detected_skills["GitHub Actions"] = SkillDetection(
+                                name="GitHub Actions",
+                                category="Tool",
+                                confidence=0.92,
+                                evidence=[f"{wf_name}: " + ", ".join(evidence)],
+                            )
+
+        # Use combined_text for downstream pattern matching
+        text = combined_text
 
         # Detect languages first
         self._detect_languages(text, filename, detected_skills)
@@ -143,7 +207,7 @@ class SkillExtractor:
     def _detect_languages(
         self,
         text: str,
-        filename: Optional[str],
+        filename: str | None,
         skills_dict: dict,
     ) -> None:
         """Detect programming languages."""
@@ -176,14 +240,21 @@ class SkillExtractor:
             js_evidence.append("JavaScript file extension (.js)")
         if ".ts" in str(filename or "").lower():
             js_evidence.append("TypeScript file extension (.ts)")
-        if re.search(r"\b(import|require)\s+", text):
+        # Detect imports/require and TypeScript indicators
+        tl = text.lower()
+        if re.search(r"\bimport\b", tl) or "require(" in tl:
             js_evidence.append("CommonJS or ES6 imports")
+        # TypeScript-specific syntax indicators
+        if re.search(r"\b(interface|type|namespace)\b", tl):
+            js_evidence.append("TypeScript syntax")
         if "package.json" in text_lower:
             js_evidence.append("package.json found")
 
         if js_evidence:
             confidence = min(0.95, 0.6 + len(js_evidence) * 0.1)
-            lang = "TypeScript" if ".ts" in str(filename or "").lower() else "JavaScript"
+            filename_lower = str(filename or "").lower()
+            is_ts_syntax = any("typescript" in ev.lower() for ev in js_evidence)
+            lang = "TypeScript" if is_ts_syntax or ".ts" in filename_lower else "JavaScript"
             skills_dict[lang] = SkillDetection(
                 name=lang,
                 category="Language",
@@ -249,28 +320,44 @@ class SkillExtractor:
         """Detect databases."""
         text_lower = text.lower()
 
-        for db, confidence in self.DATABASES.items():
-            if db in text_lower:
-                display_name = db.upper() if db in ["sql", "nosql"] else db.title()
-                if display_name not in skills_dict:
-                    skills_dict[display_name] = SkillDetection(
-                        name=display_name,
-                        category="Database",
-                        confidence=confidence,
-                        evidence=[f"Found '{db}' reference in content"],
-                    )
+        for db, payload in self.DATABASES.items():
+            display_name, confidence = payload
+            if db in text_lower and display_name not in skills_dict:
+                skills_dict[display_name] = SkillDetection(
+                    name=display_name,
+                    category="Database",
+                    confidence=confidence,
+                    evidence=[f"Found '{db}' reference in content"],
+                )
 
     def _detect_tools(self, text: str, skills_dict: dict) -> None:
         """Detect tools and DevOps technologies."""
         text_lower = text.lower()
 
+        # Dockerfile-style detection (FROM ... and EXPOSE or RUN patterns)
+        dockerfile_evidence = (
+            bool(re.search(r"^\s*from\s+[\w\d\-\./:]+", text, flags=re.MULTILINE | re.IGNORECASE))
+            and "expose" in text_lower
+        )
+        docker_compose_evidence = "version:" in text_lower and "services:" in text_lower
+
         for tool, confidence in self.TOOLS.items():
-            if tool in text_lower:
-                display_name = tool.upper() if tool in ["ci/cd"] else tool.title()
-                if display_name not in skills_dict:
-                    skills_dict[display_name] = SkillDetection(
-                        name=display_name,
-                        category="Tool",
-                        confidence=confidence,
-                        evidence=[f"Found '{tool}' reference in content"],
-                    )
+            if not (
+                tool in text_lower
+                or (tool == "docker" and (dockerfile_evidence or docker_compose_evidence))
+            ):
+                continue
+
+            display_name = tool.upper() if tool in ["ci/cd"] else tool.title()
+            if display_name not in skills_dict:
+                evidence = [f"Found '{tool}' reference in content"]
+                if tool == "docker" and dockerfile_evidence:
+                    evidence.append("Dockerfile-style instructions detected")
+                if tool == "docker" and docker_compose_evidence:
+                    evidence.append("Docker Compose file structure detected")
+                skills_dict[display_name] = SkillDetection(
+                    name=display_name,
+                    category="Tool",
+                    confidence=confidence,
+                    evidence=evidence,
+                )
