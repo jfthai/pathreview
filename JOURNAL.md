@@ -53,14 +53,16 @@ n/a
 
 **PR link:** [link to your submitted pull request]
 
-**Branch:** [the branch name you worked on, e.g. `fix/123-short-description`]
+**Branch:** 14-github-actions-workflow-parser
 
 **What you built:**
-[1–3 sentences summarizing what your fix does and how it works]
+Added workflow-aware CI/CD detection across the ingestion and skill-extraction pipeline. `RepoAnalyzer.parse()` now treats `.github/workflows` entries as CI/CD evidence and includes `GitHub Actions` in `tech_stack`. `SkillExtractor` was extended to fold `repo_metadata["file_structure"]` and optional `workflows` content into its analysis so it can infer `GitHub Actions` / `CI/CD` skills from workflow filenames and YAML contents. Small updates were made to `agent/tools/tech_detector.py` to ensure `.github/workflows` is treated consistently.
 
 **Tests added or updated:**
-[Which test files did you touch? What do they cover?]
+- `tests/unit/test_repo_analyzer.py`: new tests that verify `has_ci` and `tech_stack` include GitHub Actions when workflow paths are present.
+- `tests/unit/test_skill_extractor.py`: updated to cover detection from `repo_metadata` (workflow filenames and simple YAML evidence).
+- `tests/unit/test_tech_detector.py`: updated assertions for GitHub Actions detection from file lists.
 
-**Self-review confirmation:** [ ] make check passes  [ ] make test-unit passes
+**Self-review confirmation:** [X] make check passes  [X] make test-unit passes
 
-**Draft PR feedback received from:** [name or Slack handle, or "none"]
+**Draft PR feedback received from:** none
