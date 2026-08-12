@@ -66,3 +66,36 @@ Added workflow-aware CI/CD detection across the ingestion and skill-extraction p
 **Self-review confirmation:** [X] make check passes  [X] make test-unit passes
 
 **Draft PR feedback received from:** none
+
+
+## Week 10 — Iteration & reflection
+
+### Reviewer feedback
+
+**Feedback received:** [ ] Yes  [X] No — still awaiting review
+
+**Summary of feedback:**
+[What did reviewers comment on? Or note that no review came in.]
+
+**How you responded:**
+[What changes did you make, or what did you reply? If no feedback,
+leave blank.]
+
+---
+
+### Reflection
+
+**What was harder than you expected?**
+Working through the bug was harder than expected because the fix spanned multiple layers of the ingestion pipeline. The repository analyzer already detected workflows as CI/CD evidence, but the skill extractor and tech detector had to be aligned so workflow filenames and YAML content actually produced GitHub Actions / CI/CD skill output. That meant tracing metadata from RepoAnalyzer.parse() through SkillExtractor and ensuring the evidence format stayed consistent across tests.
+
+**What did you learn about working in a large codebase?**
+I learned that in a large codebase, the hard part is often understanding how data flows between modules rather than the individual implementation details. The ingestion metadata, parser outputs, and skill inference logic live in separate files (repo_analyzer.py, skill_extractor.py, and tech_detector.py), so I had to verify that the same concept of "GitHub Actions workflow evidence" was represented consistently in each layer. In contrast, my own projects tend to have tighter, more obvious boundaries.
+
+**How did AI tools help — and where did they fall short?**
+AI tools were helpful for identifying the relevant files and test locations quickly, especially when searching for workflows, RepoAnalyzer, and SkillExtractor. They were less useful for understanding the pipeline contract and subtle semantics of how repo_metadata gets passed into skill extraction, so I still had to read the code closely and reason about the end-to-end flow myself.
+
+**What would you do differently if you started over?**
+If I started over, I would map the ingestion-to-skill path first and add integration-style tests earlier. That means first confirming whether pipeline.py actually carries workflow content into SkillExtractor, and then writing tests that cover the end-to-end metadata flow instead of only unit tests in isolated modules.
+
+**What are you most proud of from this module?**
+I’m most proud of implementing a fix that closes a real semantic gap: GitHub Actions workflows now contribute to CI/CD skill detection instead of being ignored. This makes the tool more accurate for DevOps evidence and improves the value of the final repository analysis.
